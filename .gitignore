@@ -1,0 +1,7 @@
+.bash_history
+.cargo/**
+.config/**
+.python_history
+artiq_*/**
+*.pyon
+__pycache__/**
