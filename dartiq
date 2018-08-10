@@ -1,0 +1,157 @@
+#!/bin/bash
+
+if [ "$1" == "--help" ]; then
+  echo "dartiq [options] [command]
+  
+Run ARTIQ in Docker container.
+
+When no command is supplied an interactive shell with ARTIQ environment enabled is started.
+Otherwise supplied command is started in ARTIQ environment.
+
+Options:
+
+  --user <USER>
+      in the container act as a USER, defaults to current user
+  --workspace <DIRECTORY>
+      direcotry to be mounted as /home/workspace and be a default home directory when running
+      in non-root mode, defaults to current directory
+  --gateware-toolchain
+      path to gatware toolchain, in case of Xilinx Vivado it should point to the directory 
+      where Vivado directory is located
+  --artiq <DIRECTORY>
+      directory from which is to be used as ARTIQ sources
+  --misoc <DIRECTORY>
+      directory from which is to be used as MiSOC sources
+  --migen <DIRECTORY>
+      directory from which is to be used as Migen sources
+      
+Environmental variables used:
+
+  ARTIQ_DOCKER_TOOLS_PATH - equivalent of gateware-toolchain option
+  ARTIQ_DOCKER_ARTIQ_PATH - equivalent of artiq option
+  ARTIQ_DOCKER_MISOC_PATH - equivalent of misoc option
+  ARTIQ_DOCKER_MIGEN_PATH - equivalent of migen option
+
+NOTE 1: Options have higher priority then environmental variables.
+NOTE 2: If no Artiq source is supplied version from the image is used.
+  "
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------------------------------------------------
+
+MIGEN_PATH="$ARTIQ_DOCKER_MIGEN_PATH"
+MISOC_PATH="$ARTIQ_DOCKER_MISOC_PATH"
+ARTIQ_PATH="$ARTIQ_DOCKER_ARTIQ_PATH"
+TOOLS_PATH="$ARTIQ_DOCKER_TOOLS_PATH"
+
+WORKSPACE="$(pwd)"
+ENTRYPOINT_ARGS=""
+ARGUMENTS_LEFT=()
+ENV_VARS=""
+DEVICES=""
+MOUNTS="-v /run/udev:/run/udev:ro -v /dev/bus/usb:/dev/bus/usb -v /tmp/.X11-unix:/tmp/.X11-unix"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Parse arguments
+
+while [ "$1" != "" ]; do 
+    case $1 in
+      "--user")
+          shift
+          HOST_USER="$1"
+          shift
+          ;;
+      "--workspace")
+          shift
+          WORKSPACE="$(readlink -f $1)"
+          # Check if workspace exists. If not create it. Otherwise it will be 
+          # created by Docker and access rights will be messed.
+          if [ ! -d "$WORKSPACE" ]; then
+            mkdir -p "$WORKSPACE"
+          fi
+          shift
+          ;;
+      "--gateware-toolchain")
+          shift
+          TOOLS_PATH="$1"
+          shift
+          ;;
+      "--migen")
+          shift
+          MIGEN_PATH="$1"
+          shift
+          ;;
+      "--misoc")
+          shift
+          MISOC_PATH="$1"
+          shift
+          ;;
+      "--artiq")
+          shift
+          ARTIQ_PATH="$1"
+          shift
+          ;;
+      *)
+          ARGUMENTS_LEFT+=($1)
+          shift
+          ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Process mounts
+
+if [ -n "$TOOLS_PATH" ]; then
+    echo "Gateware tools: $TOOLS_PATH"
+    MOUNTS="$MOUNTS -v $TOOLS_PATH:$TOOLS_PATH:ro"
+    ENV_VARS="$ENV_VARS -e GATEWARE_TOOLCHAIN_PATH=$TOOLS_PATH/Vivado"
+fi
+
+if [ -n "$MIGEN_PATH" ]; then
+    echo "Migen path: $MIGEN_PATH"
+    MOUNTS="$MOUNTS -v $MIGEN_PATH:/migen:rw"
+fi
+
+if [ -n "$MISOC_PATH" ]; then
+    echo "MiSOC path: $MISOC_PATH"
+    MOUNTS="$MOUNTS -v $MISOC_PATH:/misoc:rw"
+fi
+
+if [ -n "$ARTIQ_PATH" ]; then
+    echo "ARTIQ path: $ARTIQ_PATH"
+    MOUNTS="$MOUNTS -v $ARTIQ_PATH:/artiq:rw"
+fi
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Add ttyUSB devices
+
+for x in $(find /dev -name ttyUSB* 2>/dev/null)
+do
+  DEVICES="$DEVICES --device=$x"
+done
+
+# ---------------------------------------------------------------------------------------------------------------------
+# User creation arguments
+
+ENTRYPOINT_ARGS="$ENTRYPOINT_ARGS --uid $(id -u $HOST_USER)"
+ENTRYPOINT_ARGS="$ENTRYPOINT_ARGS --user $(id -u -n $HOST_USER)"
+ENTRYPOINT_ARGS="$ENTRYPOINT_ARGS --gid $(id -g $HOST_USER)"
+ENTRYPOINT_ARGS="$ENTRYPOINT_ARGS --group $(id -g -n $HOST_USER)"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Execute docker
+
+# For debugging
+# set -o xtrace
+
+docker run -it $DEVICES --privileged \
+           -e DISPLAY=$DISPLAY \
+           --net=host \
+           $MOUNTS \
+           $MOUNT_TOOLS \
+           -v $WORKSPACE:/home/workspace \
+           $ENV_VARS \
+           quartiq/artiq:latest \
+           $ENTRYPOINT_ARGS \
+            "${ARGUMENTS_LEFT[@]}"
