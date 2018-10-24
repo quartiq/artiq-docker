@@ -47,8 +47,6 @@ done
 # Install packages, if external sources are used
 # Copy is made to allow RO mounts of external sources
 
-FIX_PERMISSIONS=0
-
 if [ -d /migen_ext ]; then
   (init_artiq_env; rsync -a /migen_ext/* /tmp/migen; cd /tmp/migen; pip install -e .)
 fi
@@ -75,12 +73,12 @@ fi
 # ---------------------------------------------------------------------------------------------------------------------
 # Start command or console
 
-
 # No additional arguments supplied mean start console
 if [ "$1" == "" ]; then
   exec gosu $HOST_USER /bin/bash --rcfile /.bashrc -i
 # Otherwise execute supplied arguments
 else
-  init_artiq_env
-  exec gosu $HOST_USER /bin/bash -c "source /.bashrc && $@"
+  #init_artiq_env
+  CMD="source /.bashrc && $@"
+  exec gosu $HOST_USER /bin/bash -c "$CMD"
 fi
