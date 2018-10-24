@@ -2,6 +2,13 @@ FROM continuumio/miniconda3:latest
 
 RUN git clone --recursive https://github.com/m-labs/artiq /artiq
 RUN cd artiq && conda env create -f conda/artiq-dev.yaml && rm -rf /opt/conda/pkgs/*
+RUN /bin/bash -c 'source activate artiq-dev && \
+                  cd artiq && \
+                  pip install -e .'
+                  
+RUN /bin/bash -c 'source activate artiq-dev && conda install cython && rm -rf /opt/conda/pkgs/*'
+
+RUN chmod 755 -R /opt/conda/envs/artiq-dev/lib/python3.5/site-packages
 
 # Install stuff necessery for Xilinx Vivado and X apps
 RUN apt-get update && apt-get install -y \
@@ -17,6 +24,7 @@ RUN apt-get update && apt-get install -y \
         libxrandr2 \
         fontconfig \
         libgl1-mesa-glx \
+        libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN echo 'source activate artiq-dev && cd ~/' >> /.bashrc
