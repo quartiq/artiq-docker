@@ -10,10 +10,14 @@ Otherwise supplied command is started in ARTIQ environment.
 
 Options:
 
+  --image <IMAGE TAG>
+      use image specified by IMAGE TAG
   --user <USER>
       in the container act as a USER, defaults to current user
+  --home <PATH>
+      when running as non-root user mount specified directory as home directory
   --workspace <DIRECTORY>
-      direcotry to be mounted as /home/workspace and be a default home directory when running
+      direcotry to be mounted as /workspace and be a default home directory when running
       in non-root mode, defaults to current directory
   --gateware-toolchain
       path to gatware toolchain, in case of Xilinx Vivado it should point to the directory 
@@ -24,13 +28,20 @@ Options:
       directory from which is to be used as MiSOC sources
   --migen <DIRECTORY>
       directory from which is to be used as Migen sources
+  --docker-options '<OPTIONS>'
+      adds string <OPTIONS> as additional parameters to docker call
+  --debug
+      enable debugging of docker command
       
 Environmental variables used:
 
   ARTIQ_DOCKER_TOOLS_PATH - equivalent of gateware-toolchain option
+  ARTIQ_DOCKER_HOME_PATH  - equivalent of home option
+  ARTIQ_DOCKER_IMAGE      - equivalent of image option
   ARTIQ_DOCKER_ARTIQ_PATH - equivalent of artiq option
   ARTIQ_DOCKER_MISOC_PATH - equivalent of misoc option
   ARTIQ_DOCKER_MIGEN_PATH - equivalent of migen option
+  ARTIQ_DOCKER_OPTIONS    - equivalent of docker-options option
 
 NOTE 1: Options have higher priority then environmental variables.
 NOTE 2: If no Artiq source is supplied version from the image is used.
@@ -44,6 +55,9 @@ MIGEN_PATH="$ARTIQ_DOCKER_MIGEN_PATH"
 MISOC_PATH="$ARTIQ_DOCKER_MISOC_PATH"
 ARTIQ_PATH="$ARTIQ_DOCKER_ARTIQ_PATH"
 TOOLS_PATH="$ARTIQ_DOCKER_TOOLS_PATH"
+DARTIQ_HOME_PATH="$ARTIQ_DOCKER_HOME_PATH"
+IMAGE="$ARTIQ_DOCKER_IMAGE"
+DOCKER_OPTIONS="$ARTIQ_DOCKER_OPTIONS"
 
 WORKSPACE="$(pwd)"
 ENTRYPOINT_ARGS=""
@@ -51,12 +65,24 @@ ARGUMENTS_LEFT=()
 ENV_VARS=""
 DEVICES=""
 MOUNTS="-v /run/udev:/run/udev:ro -v /dev/bus/usb:/dev/bus/usb -v /tmp/.X11-unix:/tmp/.X11-unix"
+if [ -z "$IMAGE" ]; then
+    IMAGE="quartiq/artiq:latest"
+fi
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Parse arguments
 
 while [ "$1" != "" ]; do 
     case $1 in
+      "--debug")
+          set -o xtrace
+          shift
+          ;;
+      "--image")
+          shift
+          IMAGE="$1"
+          shift
+          ;;
       "--user")
           shift
           HOST_USER="$1"
@@ -92,12 +118,37 @@ while [ "$1" != "" ]; do
           ARTIQ_PATH="$1"
           shift
           ;;
+      "--home")
+          shift
+          DARTIQ_HOME_PATH="$1"
+          shift
+          ;;
+      "--docker-options")
+          shift
+          DOCKER_OPTIONS="$1"
+          shift
+          ;;
       *)
           ARGUMENTS_LEFT+=($1)
           shift
           ;;
     esac
 done
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Home directory
+
+if [ -z "$DARTIQ_HOME_PATH" ]; then
+    DARTIQ_HOME_PATH="$WORKSPACE/.dartiq_home"
+fi
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Print parameters
+
+echo "Home path:      $DARTIQ_HOME_PATH"
+echo "Workspace path: $WORKSPACE"
+echo "Docker image:   $IMAGE"
+echo "Docker options: $DOCKER_OPTIONS"
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Process mounts
@@ -110,17 +161,17 @@ fi
 
 if [ -n "$MIGEN_PATH" ]; then
     echo "Migen path: $MIGEN_PATH"
-    MOUNTS="$MOUNTS -v $MIGEN_PATH:/migen:rw"
+    MOUNTS="$MOUNTS -v $MIGEN_PATH:/migen_ext:ro"
 fi
 
 if [ -n "$MISOC_PATH" ]; then
     echo "MiSOC path: $MISOC_PATH"
-    MOUNTS="$MOUNTS -v $MISOC_PATH:/misoc:rw"
+    MOUNTS="$MOUNTS -v $MISOC_PATH:/misoc_ext:ro"
 fi
 
 if [ -n "$ARTIQ_PATH" ]; then
     echo "ARTIQ path: $ARTIQ_PATH"
-    MOUNTS="$MOUNTS -v $ARTIQ_PATH:/artiq:rw"
+    MOUNTS="$MOUNTS -v $ARTIQ_PATH:/artiq_ext:ro"
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -143,15 +194,17 @@ ENTRYPOINT_ARGS="$ENTRYPOINT_ARGS --group $(id -g -n $HOST_USER)"
 # Execute docker
 
 # For debugging
-# set -o xtrace
+# 
 
 docker run -it $DEVICES --privileged \
            -e DISPLAY=$DISPLAY \
            --net=host \
            $MOUNTS \
            $MOUNT_TOOLS \
-           -v $WORKSPACE:/home/workspace \
+           -v $WORKSPACE:/workspace \
+           -v $DARTIQ_HOME_PATH:/home/user \
            $ENV_VARS \
-           quartiq/artiq:latest \
+           $DOCKER_OPTIONS \
+           $IMAGE \
            $ENTRYPOINT_ARGS \
             "${ARGUMENTS_LEFT[@]}"
