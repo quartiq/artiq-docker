@@ -19,6 +19,6 @@ COPY artiq_env.nix .
 # Get / build all the requirements once for the image
 RUN nix-shell artiq_env.nix --command "artiq_client --version"
 
-# Start an interactive shell on launch
-ENTRYPOINT ["nix-shell", "artiq_env.nix"]
+# Install these packages into the local environment
+RUN nix-env -f artiq_env.nix  -i -A 'buildInputs'
 
