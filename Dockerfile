@@ -1,11 +1,24 @@
-FROM continuumio/miniconda3:latest
+FROM nixos/nix
 
-ARG CACHE_DATE_BASE=2020-05-18
+# Set a cache date, for easy updates
+ARG CACHE_DATE=2020-05-19
 
-RUN conda install -qy \
-	-c m-labs/label/dev -c m-labs -c defaults -c conda-forge \
-	nomkl artiq && \
-	conda clean -tipsy
+RUN mkdir /artiq
+WORKDIR /artiq
 
-ENTRYPOINT []
-CMD [ "/bin/bash" ]
+# Add nix channels from https://m-labs.hk/artiq/manual/installing.html#installing-via-nix-linux
+RUN nix-channel --add https://nixbld.m-labs.hk/channel/custom/artiq/full/artiq-full
+RUN nix-channel --remove nixpkgs
+RUN nix-channel --add https://nixos.org/channels/nixos-19.09 nixpkgs
+RUN nix-channel --update
+
+# Copy nix security info and environment spec
+COPY nix.conf /root/.config/nix/nix.conf
+COPY artiq_env.nix .
+
+# Get / build all the requirements once for the image
+RUN nix-shell artiq_env.nix --command "artiq_client --version"
+
+# Start an interactive shell on launch
+ENTRYPOINT ["nix-shell", "artiq_env.nix"]
+
